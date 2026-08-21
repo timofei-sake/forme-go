@@ -16,3 +16,7 @@ func (e *FormeRenderError) Error() string {
 func renderPDF(_ string) ([]byte, error) {
 	return nil, fmt.Errorf("WASM rendering not available: build with -tags forme_wasm (requires forme.wasm)")
 }
+
+func renderTemplatePDF(_, _ []byte) ([]byte, error) {
+	return nil, fmt.Errorf("WASM rendering not available: build with -tags forme_wasm (requires forme.wasm)")
+}

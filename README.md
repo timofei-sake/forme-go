@@ -3,7 +3,7 @@
 Go SDK for [Forme](https://formepdf.com) — a PDF rendering engine. Two packages:
 
 - **`forme-go`** — Zero-dependency API client for the hosted rendering service
-- **`forme-go/templates`** — Local PDF rendering with a component DSL and WASM engine
+- **`forme-go/templates`** — Local PDF rendering from the component DSL or compiled templates with a WASM engine
 
 ## Installation
 
@@ -130,6 +130,26 @@ if err != nil {
 
 `Extract` returns `nil, nil` when the PDF has no embedded data (404 with "no embedded data").
 
+## Rendering Compiled Templates Locally
+
+Compiled template JSON can be evaluated with data and rendered through the
+same local WASM engine. This keeps template compilation in a frontend or CI
+pipeline while Go performs PDF generation without an API call.
+
+```go
+templateJSON, err := os.ReadFile("creator-profile.json")
+if err != nil {
+    panic(err)
+}
+
+pdf, err := templates.RenderTemplate(templateJSON, map[string]any{
+    "name": "Ada Lovelace",
+})
+if err != nil {
+    panic(err)
+}
+```
+
 ## Component Reference
 
 | Constructor | Description | Chainable Methods |
@@ -180,7 +200,7 @@ The `Style` struct supports all CSS-like properties:
 | | Hosted API | Native Templates |
 |---|---|---|
 | **Dependency** | Zero (stdlib only) | wazero (~10MB WASM) |
-| **Templates** | Pre-uploaded via dashboard | Built in Go code |
+| **Templates** | Pre-uploaded via dashboard | Go DSL or compiled JSON |
 | **Network** | Requires API call | Fully offline |
 | **Use case** | Dynamic data + stored templates | Full control, CI/CD, testing |
 | **Rendering** | Server-side | Local WASM |
@@ -188,9 +208,10 @@ The `Style` struct supports all CSS-like properties:
 ## Building WASM for Local Rendering
 
 ```bash
-cd packages/go-sdk/templates
+cd templates
 bash build_wasm.sh
 go test -tags forme_wasm ./...
 ```
 
-The WASM binary is `.gitignore`d — build it locally or download from releases.
+The package embeds `forme.wasm` in builds using the `forme_wasm` tag. Rebuild
+the binary after changes to the engine's raw WASM ABI.

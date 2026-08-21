@@ -35,6 +35,13 @@ func TestDocumentWithMetadata(t *testing.T) {
 	}
 }
 
+func TestRenderTemplateRejectsUnencodableData(t *testing.T) {
+	_, err := RenderTemplate([]byte(`{"children":[]}`), make(chan int))
+	if err == nil {
+		t.Fatal("expected template data marshal error")
+	}
+}
+
 func TestDocumentWithLang(t *testing.T) {
 	doc := Document(Page(Text("Hello"))).Lang("en-US")
 	d := doc.toDict()
@@ -829,6 +836,31 @@ func TestWASMEmbedData(t *testing.T) {
 		t.Fatalf("render error: %v", err)
 	}
 	if len(pdf) < 4 || string(pdf[:4]) != "%PDF" {
+		t.Fatal("result is not a valid PDF")
+	}
+}
+
+func TestWASMRenderTemplate(t *testing.T) {
+	skipIfNoWasm(t)
+
+	template := []byte(`{
+		"children": [{
+			"kind": {"type": "Text", "content": {"$ref": "title"}},
+			"style": {"fontSize": 24},
+			"children": []
+		}],
+		"metadata": {"title": {"$ref": "title"}},
+		"defaultPage": {
+			"size": "A4",
+			"margin": {"top": 54, "right": 54, "bottom": 54, "left": 54},
+			"wrap": true
+		}
+	}`)
+	pdf, err := RenderTemplate(template, map[string]any{"title": "Invoice #001"})
+	if err != nil {
+		t.Fatalf("render template error: %v", err)
+	}
+	if len(pdf) < 5 || string(pdf[:5]) != "%PDF-" {
 		t.Fatal("result is not a valid PDF")
 	}
 }

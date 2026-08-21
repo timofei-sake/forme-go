@@ -59,6 +59,14 @@ func initEngine() (*formeEngine, error) {
 }
 
 func renderPDF(jsonStr string) ([]byte, error) {
+	return renderWASM("forme_render_pdf", []byte(jsonStr))
+}
+
+func renderTemplatePDF(templateJSON, dataJSON []byte) ([]byte, error) {
+	return renderWASM("forme_render_template", templateJSON, dataJSON)
+}
+
+func renderWASM(renderExport string, inputs ...[]byte) ([]byte, error) {
 	eng, err := initEngine()
 	if err != nil {
 		return nil, err
@@ -79,37 +87,45 @@ func renderPDF(jsonStr string) ([]byte, error) {
 
 	alloc := mod.ExportedFunction("forme_alloc")
 	dealloc := mod.ExportedFunction("forme_dealloc")
-	render := mod.ExportedFunction("forme_render_pdf")
+	render := mod.ExportedFunction(renderExport)
 	resultPtr := mod.ExportedFunction("forme_get_result_ptr")
 	resultLen := mod.ExportedFunction("forme_get_result_len")
 	errorPtr := mod.ExportedFunction("forme_get_error_ptr")
 	errorLen := mod.ExportedFunction("forme_get_error_len")
 	freeResult := mod.ExportedFunction("forme_free_result")
-
-	jsonBytes := []byte(jsonStr)
-	length := uint64(len(jsonBytes))
-
-	// Allocate input buffer
-	results, err := alloc.Call(ctx, length, 1)
-	if err != nil {
-		return nil, fmt.Errorf("forme_alloc failed: %w", err)
-	}
-	inputPtr := results[0]
-	if inputPtr == 0 {
-		return nil, &FormeRenderError{Message: "Failed to allocate WASM memory for input"}
+	if alloc == nil || dealloc == nil || render == nil || resultPtr == nil || resultLen == nil ||
+		errorPtr == nil || errorLen == nil || freeResult == nil {
+		return nil, fmt.Errorf("WASM module is missing required export %q", renderExport)
 	}
 
-	// Write JSON into WASM memory
-	if !mod.Memory().Write(uint32(inputPtr), jsonBytes) {
-		dealloc.Call(ctx, inputPtr, length, 1)
-		return nil, &FormeRenderError{Message: "Failed to write to WASM memory"}
+	params := make([]uint64, 0, len(inputs)*2)
+	for _, input := range inputs {
+		length := uint64(len(input))
+		allocationSize := length
+		if allocationSize == 0 {
+			allocationSize = 1
+		}
+
+		results, err := alloc.Call(ctx, allocationSize, 1)
+		if err != nil {
+			return nil, fmt.Errorf("forme_alloc failed: %w", err)
+		}
+		inputPtr := results[0]
+		if inputPtr == 0 {
+			return nil, &FormeRenderError{Message: "Failed to allocate WASM memory for input"}
+		}
+		defer dealloc.Call(ctx, inputPtr, allocationSize, 1)
+
+		if !mod.Memory().Write(uint32(inputPtr), input) {
+			return nil, &FormeRenderError{Message: "Failed to write to WASM memory"}
+		}
+		params = append(params, inputPtr, length)
 	}
 
 	// Call render
-	results, err = render.Call(ctx, inputPtr, length)
+	results, err := render.Call(ctx, params...)
 	if err != nil {
-		dealloc.Call(ctx, inputPtr, length, 1)
-		return nil, fmt.Errorf("forme_render_pdf failed: %w", err)
+		return nil, fmt.Errorf("%s failed: %w", renderExport, err)
 	}
 	status := results[0]
 
@@ -125,7 +141,6 @@ func renderPDF(jsonStr string) ([]byte, error) {
 				errMsg = string(data)
 			}
 		}
-		dealloc.Call(ctx, inputPtr, length, 1)
 		return nil, &FormeRenderError{Message: errMsg}
 	}
 
@@ -136,13 +151,11 @@ func renderPDF(jsonStr string) ([]byte, error) {
 	rLen := uint32(rLenResults[0])
 
 	if rPtr == 0 || rLen == 0 {
-		dealloc.Call(ctx, inputPtr, length, 1)
 		return nil, &FormeRenderError{Message: "Render returned empty result"}
 	}
 
 	pdfBytes, ok := mod.Memory().Read(rPtr, rLen)
 	if !ok {
-		dealloc.Call(ctx, inputPtr, length, 1)
 		return nil, &FormeRenderError{Message: "Failed to read PDF from WASM memory"}
 	}
 
@@ -151,7 +164,6 @@ func renderPDF(jsonStr string) ([]byte, error) {
 	copy(result, pdfBytes)
 
 	freeResult.Call(ctx)
-	dealloc.Call(ctx, inputPtr, length, 1)
 
 	return result, nil
 }
