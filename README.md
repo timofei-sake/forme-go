@@ -15,6 +15,11 @@ go get github.com/formepdf/forme-go
 go get github.com/formepdf/forme-go/templates
 ```
 
+`forme-go` builds on any supported Go release. `forme-go/templates` needs Go
+1.25 or newer: it embeds the WASM engine and runs it through wazero, whose
+amd64 compiler mis-renders under earlier toolchains. Older toolchains are
+refused at build time rather than failing during a render.
+
 ## Quick Start: Hosted API
 
 ```go
